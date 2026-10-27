@@ -17,12 +17,13 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
-    NSBitmapImageRepPropertyKey, NSButton, NSColor, NSControl, NSControlStateValueOn, NSEvent,
-    NSEventMask, NSEventType, NSFont, NSFontWeightRegular, NSForegroundColorAttributeName, NSMenu,
-    NSMenuItem, NSPanel, NSScreen, NSStatusBar, NSStatusBarButton, NSStatusItem,
-    NSStatusWindowLevel, NSTextAlignment, NSTextField, NSTrackingArea, NSTrackingAreaOptions,
-    NSVariableStatusItemLength, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView, NSWindowStyleMask,
+    NSBitmapImageRep, NSBitmapImageRepPropertyKey, NSButton, NSColor, NSControl,
+    NSControlStateValueOn, NSEvent, NSEventMask, NSEventType, NSFont, NSFontWeightRegular,
+    NSForegroundColorAttributeName, NSImage, NSMenu, NSMenuItem, NSPanel, NSScreen, NSStatusBar,
+    NSStatusBarButton, NSStatusItem, NSStatusWindowLevel, NSTextAlignment, NSTextField,
+    NSTrackingArea, NSTrackingAreaOptions, NSVariableStatusItemLength, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSDictionary, NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString, NSTimer,
@@ -74,6 +75,14 @@ fn debug_cadence() -> Duration {
             .and_then(|v| v.parse().ok())
             .unwrap_or(1000)
     }))
+}
+
+/// `MBQUOTE_DEBUG_SHOT=<目录>`：等行情到位后渲染 README 用的素材
+/// （`raw-bar.png` = 状态栏文字，`raw-panel.png` = 悬停面板）
+fn debug_shot_dir() -> Option<String> {
+    std::env::var("MBQUOTE_DEBUG_SHOT")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// `MBQUOTE_DEBUG_SETTINGS=1` 时启动就打开设置窗口（免去手点，便于核对排版）
@@ -260,6 +269,7 @@ pub fn run() -> ! {
         settings: RefCell::new(None),
         settings_selftested: std::cell::Cell::new(false),
         debug_ticks: std::cell::Cell::new(0),
+        shot_done: std::cell::Cell::new(false),
         state: RefCell::new(State::new(cfg)),
     };
 
@@ -434,6 +444,8 @@ struct Ivars {
     settings_selftested: std::cell::Cell<bool>,
     /// 调试：模拟输入的打点计数
     debug_ticks: std::cell::Cell<u32>,
+    /// 调试：截图素材是否已产出
+    shot_done: std::cell::Cell<bool>,
     state: RefCell<State>,
 }
 
@@ -659,9 +671,69 @@ impl Controller {
                 eprintln!("[tickerstrip/selftest] {}", win.selftest(&base));
             }
         }
+        self.debug_maybe_shot();
         self.debug_maybe_type();
         if debug_on() || debug_snapshot_path().is_some() {
             self.debug_dump();
+        }
+    }
+
+    /// 产出 README 素材：行情到位后渲染状态栏文字与面板各一张
+    fn debug_maybe_shot(&self) {
+        let Some(dir) = debug_shot_dir() else { return };
+        if self.ivars().shot_done.get() {
+            return;
+        }
+        {
+            let st = self.ivars().state.borrow();
+            if st.quotes.is_empty() {
+                return;
+            }
+        }
+        self.ivars().shot_done.set(true);
+        // 滚动条回到起点，让图里从第一只股票开始，好看一点
+        self.ivars().state.borrow_mut().offset = 0;
+        self.update_marquee();
+        let bar = format!("{dir}/raw-bar.png");
+        let panel = format!("{dir}/raw-panel.png");
+        snapshot_view_self(&self.ivars().button, &bar);
+        snapshot_view(&self.ivars().effect, &panel);
+        // 状态栏那一行的内容另外导出成 JSON：状态栏视图的渲染倍率跟着所在屏幕走
+        // （1x 屏上只有 22px 高），交给合成脚本按任意倍率重绘才清晰
+        self.export_bar_runs(&format!("{dir}/raw-bar.json"));
+        eprintln!("[{APP_NAME}/shot] 素材已输出：{bar} 与 {panel}");
+    }
+
+    /// 导出状态栏可见文字的分段与颜色
+    fn export_bar_runs(&self, path: &str) {
+        let (runs, cfg) = {
+            let st = self.ivars().state.borrow();
+            let mut chars = st.bar.clone();
+            // 只取起始的一段：合成脚本按宽度截断
+            chars.truncate(400);
+            (merge_runs(&chars), st.cfg.clone())
+        };
+        let items: Vec<serde_json::Value> = runs
+            .into_iter()
+            .map(|(text, style)| {
+                let color = match style {
+                    BarStyle::Plain => serde_json::Value::Null,
+                    BarStyle::Up => serde_json::Value::String(cfg.up_color.clone()),
+                    BarStyle::Down => serde_json::Value::String(cfg.down_color.clone()),
+                };
+                serde_json::json!({ "text": text, "color": color })
+            })
+            .collect();
+        let panel_pt = self.ivars().effect.bounds().size;
+        let doc = serde_json::json!({
+            "width_pt": cfg.bar_width,
+            "height_pt": 22.0,
+            "font_size": cfg.bar_font_size,
+            "panel_height_pt": panel_pt.height,
+            "runs": items,
+        });
+        if let Err(e) = std::fs::write(path, doc.to_string()) {
+            eprintln!("[{APP_NAME}/shot] 导出 {path} 失败：{e}");
         }
     }
 
@@ -1792,14 +1864,65 @@ fn layout_row(row: &Row, y: f64, width: f64, height: f64) {
     ));
 }
 
+/// 按指定倍率渲染视图自身。
+///
+/// 不依赖窗口所在屏幕的 `backingScaleFactor`：先开一张 `scale` 倍的 NSImage 画布，
+/// 再用 `displayRectIgnoringOpacity:` 把视图画进去——文字是矢量的，放大后依然锐利。
+fn snapshot_view_scaled(view: &NSView, scale: f64, path: &str) {
+    view.layoutSubtreeIfNeeded();
+    view.displayIfNeeded();
+    let bounds = view.bounds();
+    if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+        eprintln!("[{APP_NAME}/shot] {path} 尺寸为 0，跳过");
+        return;
+    }
+    let size = NSSize::new(bounds.size.width * scale, bounds.size.height * scale);
+    let canvas = NSImage::initWithSize(NSImage::alloc(), size);
+    canvas.lockFocus();
+    view.displayRectIgnoringOpacity(bounds);
+    canvas.unlockFocus();
+
+    let Some(rep) = canvas
+        .TIFFRepresentation()
+        .and_then(|t| NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), &t))
+    else {
+        eprintln!("[{APP_NAME}/shot] {path} 转位图失败");
+        return;
+    };
+    let props: Retained<NSDictionary<NSBitmapImageRepPropertyKey, AnyObject>> = NSDictionary::new();
+    let Some(data) =
+        (unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &props) })
+    else {
+        return;
+    };
+    let ok = data.writeToFile_atomically(&ns(path), true);
+    eprintln!(
+        "[{APP_NAME}/shot]   {path} {}x{} wrote={ok}",
+        size.width as i32, size.height as i32
+    );
+}
+
 /// 只渲染视图自身（用于状态栏按钮这种「父视图是整条菜单栏」的情况）
 fn snapshot_view_self(view: &NSView, path: &str) {
     view.layoutSubtreeIfNeeded();
     view.displayIfNeeded();
     let bounds = view.bounds();
-    view.dataWithPDFInsideRect(bounds)
-        .writeToFile_atomically(&ns(&format!("{path}.pdf")), true);
+    eprintln!(
+        "[{APP_NAME}/shot] snapshot_self {path} bounds={:?} hidden={} window={}",
+        (
+            bounds.origin.x,
+            bounds.origin.y,
+            bounds.size.width,
+            bounds.size.height
+        ),
+        view.isHidden(),
+        view.window().is_some()
+    );
+    let pdf = view.dataWithPDFInsideRect(bounds);
+    let ok = pdf.writeToFile_atomically(&ns(&format!("{path}.pdf")), true);
+    eprintln!("[{APP_NAME}/shot]   pdf bytes={} wrote={ok}", pdf.length());
     let Some(rep) = view.bitmapImageRepForCachingDisplayInRect(bounds) else {
+        eprintln!("[{APP_NAME}/shot]   bitmapImageRep = None");
         return;
     };
     view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
@@ -1809,7 +1932,8 @@ fn snapshot_view_self(view: &NSView, path: &str) {
     else {
         return;
     };
-    data.writeToFile_atomically(&ns(path), true);
+    let ok = data.writeToFile_atomically(&ns(path), true);
+    eprintln!("[{APP_NAME}/shot]   png bytes={} wrote={ok}", data.length());
 }
 
 /// 把视图渲染出来核对排版（不需要录屏权限）。

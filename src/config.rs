@@ -213,6 +213,13 @@ fn migrate_legacy_config() {
 }
 
 pub fn config_path() -> PathBuf {
+    // `TICKERSTRIP_CONFIG=<绝对路径>` 可临时换一份配置（脚本 / 截图 / 测试用）
+    if let Some(p) = std::env::var_os("TICKERSTRIP_CONFIG") {
+        let p = PathBuf::from(p);
+        if p.is_absolute() {
+            return p;
+        }
+    }
     config_dir().join("config.json")
 }
 

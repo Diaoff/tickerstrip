@@ -29,6 +29,35 @@ snapshot: build
 	@echo "面板快照：/tmp/tickerstrip-panel.png"
 	@open /tmp/tickerstrip-panel.png
 
+# README 示意图：用一份 demo 自选渲染，不动你自己的配置（也不泄露你的持仓）
+demo-config:
+	python3 tools/make_demo_config.py /tmp/tickerstrip-shot/config.json
+
+shot: build demo-config
+	rm -f /tmp/tickerstrip-shot/raw-*.png*
+	@TICKERSTRIP_CONFIG=/tmp/tickerstrip-shot/config.json \
+	  MBQUOTE_DEBUG_SHOT=/tmp/tickerstrip-shot ./target/debug/$(BIN) & echo $$! > /tmp/tickerstrip-shot.pid
+	@sleep 7
+	@kill $$(cat /tmp/tickerstrip-shot.pid) 2>/dev/null || true
+	@rm -f /tmp/tickerstrip-shot.pid
+	python3 tools/make_shot.py /tmp/tickerstrip-shot docs/screenshot.png
+	@open docs/screenshot.png
+
+# 打两个架构的发行包（Intel 机器上也能交叉编 arm64）
+dist:
+	rustup target add aarch64-apple-darwin >/dev/null 2>&1 || true
+	cargo build --release --target x86_64-apple-darwin
+	cargo build --release --target aarch64-apple-darwin
+	@mkdir -p dist
+	@for t in x86_64-apple-darwin aarch64-apple-darwin; do \
+	  d=dist/tickerstrip-$$t; rm -rf $$d; mkdir -p $$d; \
+	  cp target/$$t/release/$(BIN) $$d/; cp README.md LICENSE $$d/; \
+	  tar -C dist -czf dist/tickerstrip-$$t.tar.gz tickerstrip-$$t; \
+	  rm -rf $$d; \
+	  echo "  dist/tickerstrip-$$t.tar.gz"; \
+	done
+	@cd dist && shasum -a 256 *.tar.gz > SHA256SUMS && cat SHA256SUMS
+
 install: release
 	mkdir -p $(PREFIX)/bin
 	install -m 755 target/release/$(BIN) $(PREFIX)/bin/$(BIN)
