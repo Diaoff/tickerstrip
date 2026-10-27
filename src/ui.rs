@@ -17,8 +17,7 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
-    NSBitmapImageRep, NSBitmapImageRepPropertyKey, NSButton, NSColor, NSControl,
-    NSControlStateValueOn, NSEvent, NSEventMask, NSEventType, NSFont, NSFontWeightRegular,
+    NSBitmapImageRepPropertyKey, NSButton, NSColor, NSControl, NSControlStateValueOn, NSEvent, NSEventMask, NSEventType, NSFont, NSFontWeightRegular,
     NSForegroundColorAttributeName, NSImage, NSMenu, NSMenuItem, NSPanel, NSScreen, NSStatusBar,
     NSStatusBarButton, NSStatusItem, NSStatusWindowLevel, NSTextAlignment, NSTextField,
     NSTrackingArea, NSTrackingAreaOptions, NSVariableStatusItemLength, NSView,
@@ -1862,44 +1861,6 @@ fn layout_row(row: &Row, y: f64, width: f64, height: f64) {
         NSPoint::new(width - PAD - PCT_W, y + 2.0),
         NSSize::new(PCT_W, height - 2.0),
     ));
-}
-
-/// 按指定倍率渲染视图自身。
-///
-/// 不依赖窗口所在屏幕的 `backingScaleFactor`：先开一张 `scale` 倍的 NSImage 画布，
-/// 再用 `displayRectIgnoringOpacity:` 把视图画进去——文字是矢量的，放大后依然锐利。
-fn snapshot_view_scaled(view: &NSView, scale: f64, path: &str) {
-    view.layoutSubtreeIfNeeded();
-    view.displayIfNeeded();
-    let bounds = view.bounds();
-    if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
-        eprintln!("[{APP_NAME}/shot] {path} 尺寸为 0，跳过");
-        return;
-    }
-    let size = NSSize::new(bounds.size.width * scale, bounds.size.height * scale);
-    let canvas = NSImage::initWithSize(NSImage::alloc(), size);
-    canvas.lockFocus();
-    view.displayRectIgnoringOpacity(bounds);
-    canvas.unlockFocus();
-
-    let Some(rep) = canvas
-        .TIFFRepresentation()
-        .and_then(|t| NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), &t))
-    else {
-        eprintln!("[{APP_NAME}/shot] {path} 转位图失败");
-        return;
-    };
-    let props: Retained<NSDictionary<NSBitmapImageRepPropertyKey, AnyObject>> = NSDictionary::new();
-    let Some(data) =
-        (unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &props) })
-    else {
-        return;
-    };
-    let ok = data.writeToFile_atomically(&ns(path), true);
-    eprintln!(
-        "[{APP_NAME}/shot]   {path} {}x{} wrote={ok}",
-        size.width as i32, size.height as i32
-    );
 }
 
 /// 只渲染视图自身（用于状态栏按钮这种「父视图是整条菜单栏」的情况）
