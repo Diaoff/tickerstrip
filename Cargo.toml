@@ -1,0 +1,20 @@
+[package]
+name = "tickerstrip"
+version = "0.1.0"
+edition = "2024"
+description = "摸鱼盯盘 tickerStrip — macOS 菜单栏 A股/港股/美股行情：状态栏滚动 + 悬停展开面板"
+license = "MIT"
+repository = "https://github.com/Diaoff/tickerstrip"
+keywords = ["macos", "menubar", "stock", "quotes", "ticker"]
+categories = ["command-line-utilities", "gui"]
+
+[dependencies]
+block2 = "0.6.2"
+dirs = "7.0.0"
+encoding_rs = "0.8.42"
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+ureq = { version = "3.5.0", default-features = false, features = ["json", "gzip", "native-tls"] }
