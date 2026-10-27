@@ -32,19 +32,27 @@ tickerStrip 的行情层是**腾讯优先 + 东财九域名镜像链自动降级
 
 </details>
 
-## 构建与安装
+## 安装
+
+**方式一：DMG（推荐）**
+
+到 [Releases](https://github.com/Diaoff/tickerstrip/releases) 下载对应架构的 dmg
+（Apple 芯片 `arm64`，Intel `x86_64`），打开后把 **摸鱼盯盘** 拖进 Applications 即可。
+首次启动若提示「无法验证开发者」，右键图标 → 打开（ad-hoc 签名，未做公证）。
+
+**方式二：命令行**
 
 ```bash
-# 直接从仓库装（推荐）
-cargo install --git https://github.com/Diaoff/tickerstrip
-
-# 或者本地构建
-git clone https://github.com/Diaoff/tickerstrip && cd tickerstrip
-make install    # release 构建并装到 ~/.local/bin/tickerstrip
+cargo install --git https://github.com/Diaoff/tickerstrip   # 或
+git clone https://github.com/Diaoff/tickerstrip && cd tickerstrip && make install
 ```
 
 其它目标：`make build` / `make test` / `make run` / `make debug` / `make snapshot` /
-`make autostart`（登录自启，写 LaunchAgent `com.tickerstrip.plist`）/ `make unautostart`。
+`make icon`（把 `assets/icon-src.png` 转成 .icns）/ `make dist`（出两个架构的 tar.gz + dmg）/
+`make shot`（重生成 README 示意图）/ `make autostart`（登录自启，写 LaunchAgent
+`com.tickerstrip.plist`）/ `make unautostart`。
+
+`make dist` 在 Intel 机器上也能交叉编出 arm64 包（靠 `rustup target add aarch64-apple-darwin`）。
 
 依赖：Rust 1.80+、Xcode Command Line Tools。无其它运行时依赖，产物是单个二进制（约 2 MB）。
 

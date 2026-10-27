@@ -18,7 +18,7 @@ use objc2::{
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
     NSBitmapImageRepPropertyKey, NSButton, NSColor, NSControl, NSControlStateValueOn, NSEvent, NSEventMask, NSEventType, NSFont, NSFontWeightRegular,
-    NSForegroundColorAttributeName, NSImage, NSMenu, NSMenuItem, NSPanel, NSScreen, NSStatusBar,
+    NSForegroundColorAttributeName, NSMenu, NSMenuItem, NSPanel, NSScreen, NSStatusBar,
     NSStatusBarButton, NSStatusItem, NSStatusWindowLevel, NSTextAlignment, NSTextField,
     NSTrackingArea, NSTrackingAreaOptions, NSVariableStatusItemLength, NSView,
     NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,

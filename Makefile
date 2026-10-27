@@ -43,20 +43,30 @@ shot: build demo-config
 	python3 tools/make_shot.py /tmp/tickerstrip-shot docs/screenshot.png
 	@open docs/screenshot.png
 
-# 打两个架构的发行包（Intel 机器上也能交叉编 arm64）
-dist:
+# 图标：assets/icon-src.png 是源图（256x256 也行），放大到 1024 并出 .icns
+icon:
+	python3 tools/make_icon.py
+
+# 打两个架构的发行包：tar.gz（命令行用户）+ dmg（拖进 Applications）
+dist: icon
 	rustup target add aarch64-apple-darwin >/dev/null 2>&1 || true
-	cargo build --release --target x86_64-apple-darwin
-	cargo build --release --target aarch64-apple-darwin
-	@mkdir -p dist
-	@for t in x86_64-apple-darwin aarch64-apple-darwin; do \
-	  d=dist/tickerstrip-$$t; rm -rf $$d; mkdir -p $$d; \
-	  cp target/$$t/release/$(BIN) $$d/; cp README.md LICENSE $$d/; \
-	  tar -C dist -czf dist/tickerstrip-$$t.tar.gz tickerstrip-$$t; \
+	@VERSION=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1); \
+	echo "版本 $$VERSION"; \
+	for spec in "x86_64-apple-darwin x86_64" "aarch64-apple-darwin arm64"; do \
+	  set -- $$spec; target=$$1; arch=$$2; \
+	  echo "== $$target"; \
+	  cargo build --release --target $$target || exit 1; \
+	  mkdir -p dist; \
+	  d=dist/tickerstrip-$$target; rm -rf $$d; mkdir -p $$d; \
+	  cp target/$$target/release/$(BIN) $$d/; cp README.md LICENSE $$d/; \
+	  tar -C dist -czf dist/tickerstrip-$$target.tar.gz tickerstrip-$$target; \
 	  rm -rf $$d; \
-	  echo "  dist/tickerstrip-$$t.tar.gz"; \
-	done
-	@cd dist && shasum -a 256 *.tar.gz > SHA256SUMS && cat SHA256SUMS
+	  python3 tools/make_dmg.py \
+	    --binary target/$$target/release/$(BIN) \
+	    --arch $$arch --version $$VERSION \
+	    --out dist/tickerstrip-$$VERSION-$$arch.dmg; \
+	done; \
+	cd dist && shasum -a 256 *.tar.gz *.dmg > SHA256SUMS && cat SHA256SUMS
 
 install: release
 	mkdir -p $(PREFIX)/bin
